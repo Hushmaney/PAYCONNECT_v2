@@ -50,7 +50,7 @@ app.post("/api/start-checkout", async (req, res) => {
           phone_number: phone,
           network, // "MTN", "TELECEL", or "AIRTELTIGO"
           transaction_id,
-          callback_url: "https://payconnect-backend.onrender.com/api/payment-webhook",
+          callback_url: "https://payconnect-v2.onrender.com/api/payment-webhook", // ✅ Updated callback URL
           reference: "PAYCONNECT"
         },
         {
