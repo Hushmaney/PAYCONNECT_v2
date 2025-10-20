@@ -98,11 +98,15 @@ app.post("/api/start-checkout", async (req, res) => {
 // Called by BulkClix after payment confirmation
 app.post("/api/payment-webhook", async (req, res) => {
   try {
-    const { amount, status, transaction_id, ext_transaction_id, phone_number } = req.body;
+    let { amount, status, transaction_id, phone_number, dataPlan, recipient } = req.body;
 
     if (!transaction_id || !phone_number || !amount || !status) {
       return res.status(400).json({ ok: false, error: "Missing payment data" });
     }
+
+    // Ensure amount is a number
+    amount = Number(amount);
+    if (isNaN(amount)) return res.status(400).json({ ok: false, error: "Invalid amount value" });
 
     // 1️⃣ Create Airtable record after confirmed payment
     const airtableRecord = await table.create([
@@ -110,8 +114,8 @@ app.post("/api/payment-webhook", async (req, res) => {
         fields: {
           "Order ID": transaction_id,
           "Customer Phone": phone_number,
-          "Data Recipient Number": phone_number,
-          "Data Plan": "Unknown",
+          "Data Recipient Number": recipient || phone_number,
+          "Data Plan": dataPlan || "Unknown",
           "Amount": amount,
           "Status": status,
           "Hubtel Sent": true,
@@ -122,7 +126,8 @@ app.post("/api/payment-webhook", async (req, res) => {
     ]);
 
     // 2️⃣ Send SMS via Hubtel to Customer Phone
-    const smsContent = `Your payment of GHS ${amount} has been received successfully. Order ID: ${transaction_id}. Thank you for using PAYCONNECT.`;
+    const smsContent = `Your data purchase of ${dataPlan} for ${phone_number} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
+
     const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
 
     const smsResponse = await axios.get(smsUrl);
