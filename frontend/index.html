@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PAYCONNECT — Buy Data</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        background: #f6f7fb;
+        padding: 24px;
+        margin: 0;
+      }
+      .card {
+        background: white;
+        max-width: 720px;
+        margin: 30px auto;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 6px 18px rgba(31, 41, 55, 0.06);
+      }
+      h1 {
+        margin: 0 0 16px 0;
+        font-size: 22px;
+        text-align: center;
+        color: #0b74ff;
+      }
+      label {
+        display: block;
+        margin-top: 12px;
+        font-weight: 600;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 10px;
+        margin-top: 6px;
+        border-radius: 6px;
+        border: 1px solid #e6e9ef;
+        box-sizing: border-box;
+        font-size: 15px;
+      }
+      button {
+        margin-top: 20px;
+        padding: 14px 18px;
+        background: #0b74ff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        width: 100%;
+        font-size: 16px;
+      }
+      button:hover {
+        background: #095fcc;
+      }
+      .muted {
+        color: #6b7280;
+        font-size: 13px;
+        margin-top: 6px;
+        text-align: center;
+      }
+      .success,
+      .error,
+      .info {
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 16px;
+        text-align: center;
+        font-weight: 500;
+      }
+      .success {
+        background: #ecfdf5;
+        color: #065f46;
+      }
+      .error {
+        background: #fff1f2;
+        color: #7f1d1d;
+      }
+      .info {
+        background: #eff6ff;
+        color: #1e3a8a;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="card">
+      <h1>PAYCONNECT</h1>
+
+      <label>Customer Email (optional)</label>
+      <input id="email" placeholder="you@example.com" type="email" />
+
+      <label>Customer Phone</label>
+      <input id="phone" placeholder="0501234567 or +233501234567" />
+
+      <label>Data Recipient Number (where data will be delivered)</label>
+      <input id="recipient" placeholder="0501234567" />
+
+      <label>Network</label>
+      <select id="network">
+        <option value="">Select Network</option>
+        <option value="MTN">MTN</option>
+        <option value="Telecel">Telecel</option>
+        <option value="AirtelTigo">AirtelTigo</option>
+      </select>
+
+      <label>Data Plan</label>
+      <select id="dataplan"></select>
+
+      <label>Amount (GHS)</label>
+      <input id="amount" readonly />
+
+      <div class="muted">
+        After clicking <strong>Pay</strong>, you will be redirected to a secure payment page.
+      </div>
+      <button id="payBtn">Pay</button>
+
+      <div id="message"></div>
+    </div>
+
+    <script>
+      // ===============================
+      // COMPLETE DATA BUNDLE LIST
+      // ===============================
+      const PLANS = {
+        MTN: [
+          ["1GB", 1.00],
+          ["2GB", 11.00],
+          ["3GB", 15.50],
+          ["4GB", 21.00],
+          ["5GB", 25.00],
+          ["6GB", 32.00],
+          ["8GB", 40.00],
+          ["10GB", 50.00],
+          ["15GB", 72.00],
+          ["20GB", 87.00],
+          ["25GB", 110.00],
+          ["30GB", 135.00],
+          ["40GB", 175.00],
+          ["50GB", 210.00],
+          ["100GB", 405.00],
+        ],
+        Telecel: [
+          ["5GB", 24.00],
+          ["10GB", 44.00],
+          ["15GB", 63.00],
+          ["20GB", 83.00],
+          ["25GB", 101.00],
+          ["30GB", 121.00],
+          ["35GB", 150.00],
+          ["40GB", 161.00],
+          ["45GB", 190.00],
+          ["50GB", 202.00],
+          ["100GB", 375.00],
+        ],
+        AirtelTigo: [
+          ["1GB", 4.50],
+          ["2GB", 8.50],
+          ["3GB", 13.00],
+          ["4GB", 17.00],
+          ["5GB", 23.00],
+          ["6GB", 28.00],
+          ["7GB", 32.00],
+          ["8GB", 41.00],
+          ["10GB", 47.00],
+          ["12GB", 55.00],
+          ["15GB", 72.00],
+          ["20GB", 82.00],
+          ["25GB", 98.00],
+          ["30GB", 128.00],
+          ["40GB", 175.00],
+          ["50GB", 230.00],
+          ["100GB", 440.00],
+        ],
+      };
+
+      const networkSel = document.getElementById("network");
+      const planSel = document.getElementById("dataplan");
+      const amountInput = document.getElementById("amount");
+
+      networkSel.addEventListener("change", () => {
+        populatePlans();
+      });
+
+      function populatePlans() {
+        planSel.innerHTML = "";
+        const selectedNetwork = networkSel.value;
+        if (!selectedNetwork) return;
+        const plans = PLANS[selectedNetwork];
+        plans.forEach((p) => {
+          const opt = document.createElement("option");
+          opt.value = JSON.stringify({ name: `${selectedNetwork} ${p[0]}`, price: p[1] });
+          opt.textContent = `${p[0]} — GHS ${p[1].toFixed(2)}`;
+          planSel.appendChild(opt);
+        });
+        updateAmount();
+      }
+
+      function updateAmount() {
+        try {
+          amountInput.value = JSON.parse(planSel.value).price.toFixed(2);
+        } catch (e) {
+          amountInput.value = "";
+        }
+      }
+
+      planSel.addEventListener("change", updateAmount);
+
+      // ===============================
+      // PAYMENT HANDLER
+      // ===============================
+      document.getElementById("payBtn").addEventListener("click", async () => {
+        const email = document.getElementById("email").value.trim();
+        const phone = document.getElementById("phone").value.trim();
+        const recipient = document.getElementById("recipient").value.trim();
+        const network = networkSel.value;
+
+        if (!phone || !recipient || !network)
+          return showMessage("Please fill in Phone, Recipient and Network", "error");
+
+        let parsed;
+        try {
+          parsed = JSON.parse(planSel.value);
+        } catch (e) {
+          return showMessage("Choose a valid data plan", "error");
+        }
+
+        const dataPlan = parsed.name;
+        const amount = parsed.price;
+
+        const payload = { email, phone, recipient, dataPlan, amount, network };
+        showMessage("Redirecting to secure payment...", "info");
+
+        try {
+          const res = await fetch("https://payconnect-backend.onrender.com/api/start-checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data?.error || "Failed to generate payment link");
+          window.location.href = data.paymentLink;
+        } catch (err) {
+          showMessage("Error: " + err.message, "error");
+        }
+      });
+
+      function showMessage(text, type = "success") {
+        const m = document.getElementById("message");
+        m.innerHTML = "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        div.className = type;
+        m.appendChild(div);
+      }
+    </script>
+  </body>
+</html>
