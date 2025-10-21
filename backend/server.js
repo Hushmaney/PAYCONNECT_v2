@@ -104,6 +104,11 @@ app.post("/api/payment-webhook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing payment data" });
     }
 
+    // FIX START: Override status to "Pending" for successful payments
+    // This solves the 'Insufficient permissions' error and implements your workflow.
+    const orderStatus = status.toLowerCase() === "success" ? "Pending" : status;
+    // FIX END
+
     // Ensure amount is a number
     amount = Number(amount);
     if (isNaN(amount)) return res.status(400).json({ ok: false, error: "Invalid amount value" });
@@ -117,7 +122,7 @@ app.post("/api/payment-webhook", async (req, res) => {
           "Data Recipient Number": recipient || phone_number,
           "Data Plan": dataPlan || "Unknown",
           "Amount": amount,
-          "Status": status,
+          "Status": orderStatus, // 🎯 Now uses "Pending" for successful payments
           "Hubtel Sent": true,
           "Hubtel Response": "",
           "BulkClix Response": JSON.stringify(req.body)
