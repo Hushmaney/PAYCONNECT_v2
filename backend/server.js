@@ -31,7 +31,6 @@ app.get("/test", (req, res) => {
 // ----------------- START CHECKOUT (BulkClix MOMO) -----------------
 app.post("/api/start-checkout", async (req, res) => {
   try {
-    // 'email' is destructured here
     const { email, phone, recipient, dataPlan, amount, network } = req.body; 
 
     if (!phone || !recipient || !dataPlan || !amount || !network) {
@@ -77,22 +76,22 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
-    // ⭐ FIX: Create initial Airtable record to store custom data INCLUDING EMAIL.
+    // ⭐ IMPLEMENTATION: Create initial Airtable record and set Status to "Initiated"
     await table.create([
         {
             fields: {
                 "Order ID": transaction_id,
                 "Customer Phone": phone,
-                "Customer Email": email, // 🎯 ADDED: Customer Email field
+                "Customer Email": email, // Includes Customer Email
                 "Data Recipient Number": recipient,
                 "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Pending", 
+                "Status": "Initiated", // 🎯 FIX: SET TO: Initiated
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
     ]);
-    // ⭐ END FIX
+    // ⭐ END IMPLEMENTATION
 
     // ✅ Send successful response back to frontend
     res.json({
@@ -139,7 +138,7 @@ app.post("/api/payment-webhook", async (req, res) => {
     const recipientFromAirtable = record.get("Data Recipient Number"); 
     
     
-    // FIX FOR WORKFLOW & ERROR: Override status to "Pending" for successful payments
+    // ⭐ IMPLEMENTATION: Override status to "Pending" ONLY for successful payments.
     const orderStatus = status.toLowerCase() === "success" ? "Pending" : status;
 
     // Ensure amount is a number
@@ -149,25 +148,27 @@ app.post("/api/payment-webhook", async (req, res) => {
     // 1️⃣ Update Airtable record with final status and webhook data
     await table.update(record.id, {
         "Amount": amount, 
-        "Status": orderStatus, 
+        "Status": orderStatus, // 🎯 UPDATED TO: Pending if successful, or status if failed.
         "BulkClix Response": JSON.stringify(req.body) 
     });
 
-    // 2️⃣ Send SMS via Hubtel to Customer Phone
-    // The SMS content now explicitly shows the Data Recipient Number
-    const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${recipientFromAirtable} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
+    // We only send SMS on successful status (Pending). 
+    if (orderStatus === "Pending") {
+        // 2️⃣ Send SMS via Hubtel to Customer Phone
+        const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${recipientFromAirtable} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
-    const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
+        const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
 
-    const smsResponse = await axios.get(smsUrl);
+        const smsResponse = await axios.get(smsUrl);
 
-    // 3️⃣ Update Airtable with Hubtel SMS response
-    await table.update(record.id, {
-        "Hubtel Response": JSON.stringify(smsResponse.data),
-        "Hubtel Sent": true,
-    });
+        // 3️⃣ Update Airtable with Hubtel SMS response
+        await table.update(record.id, {
+            "Hubtel Response": JSON.stringify(smsResponse.data),
+            "Hubtel Sent": true,
+        });
+    }
 
-    res.json({ ok: true, message: "Payment received & SMS sent" });
+    res.json({ ok: true, message: "Payment received & record updated" });
 
   } catch (err) {
     console.error("Payment Webhook Error:", err.response?.data || err.message);
