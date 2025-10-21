@@ -76,7 +76,8 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
-    // ⭐ FIX: Create initial Airtable record to store custom data (Data Plan, Recipient)
+    // ⭐ FIX: Create initial Airtable record to store custom data.
+    // Setting Status to "Pending" to avoid the "Initiated" error.
     await table.create([
         {
             fields: {
@@ -85,7 +86,7 @@ app.post("/api/start-checkout", async (req, res) => {
                 "Data Recipient Number": recipient,
                 "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Initiated", // Set initial status
+                "Status": "Pending", // 🎯 Changed from "Initiated" to "Pending"
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
@@ -133,8 +134,8 @@ app.post("/api/payment-webhook", async (req, res) => {
     }
     
     const record = records[0];
-    const dataPlanFromAirtable = record.get("Data Plan"); // ✅ Retrieved stored Data Plan
-    const recipientFromAirtable = record.get("Data Recipient Number"); // ✅ Retrieved stored Recipient
+    const dataPlanFromAirtable = record.get("Data Plan"); // ✅ Retrieve stored Data Plan
+    // const recipientFromAirtable = record.get("Data Recipient Number"); // Not needed for SMS
     
     
     // FIX FOR WORKFLOW & ERROR: Override status to "Pending" for successful payments
@@ -147,12 +148,12 @@ app.post("/api/payment-webhook", async (req, res) => {
     // 1️⃣ Update Airtable record with final status and webhook data
     await table.update(record.id, {
         "Amount": amount, 
-        "Status": orderStatus, // Sets status to "Pending"
+        "Status": orderStatus, // Sets status to "Pending" (or the failed status)
         "BulkClix Response": JSON.stringify(req.body) 
     });
 
     // 2️⃣ Send SMS via Hubtel to Customer Phone
-    // ✅ FIX: Use the retrieved dataPlanFromAirtable variable
+    // ✅ Use the retrieved dataPlanFromAirtable variable
     const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${phone_number} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
     const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
