@@ -50,7 +50,7 @@ app.post("/api/start-checkout", async (req, res) => {
           phone_number: phone,
           network, // "MTN", "TELECEL", or "AIRTELTIGO"
           transaction_id,
-          callback_url: "https://payconnect-v2.onrender.com/api/payment-webhook", // ✅ Updated callback URL
+          callback_url: "https://payconnect-v2.onrender.com/api/payment-webhook",
           reference: "PAYCONNECT"
         },
         {
@@ -76,6 +76,22 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
+    // ⭐ FIX: Create initial Airtable record to store custom data (Data Plan, Recipient)
+    await table.create([
+        {
+            fields: {
+                "Order ID": transaction_id,
+                "Customer Phone": phone,
+                "Data Recipient Number": recipient,
+                "Data Plan": dataPlan, 
+                "Amount": amount,
+                "Status": "Initiated", // Set initial status
+                "BulkClix Response": JSON.stringify({ initiation: response.data })
+            }
+        }
+    ]);
+    // ⭐ END FIX
+
     // ✅ Send successful response back to frontend
     res.json({
       ok: true,
@@ -98,48 +114,55 @@ app.post("/api/start-checkout", async (req, res) => {
 // Called by BulkClix after payment confirmation
 app.post("/api/payment-webhook", async (req, res) => {
   try {
-    let { amount, status, transaction_id, phone_number, dataPlan, recipient } = req.body;
+    // Rely only on payment status from BulkClix; custom data is retrieved from Airtable.
+    let { amount, status, transaction_id, phone_number } = req.body; 
 
     if (!transaction_id || !phone_number || !amount || !status) {
       return res.status(400).json({ ok: false, error: "Missing payment data" });
     }
 
-    // FIX START: Override status to "Pending" for successful payments
-    // This solves the 'Insufficient permissions' error and implements your workflow.
+    // 🎯 STEP 1: Find the existing Airtable record using the Order ID
+    const records = await table.select({
+        filterByFormula: `{Order ID} = '${transaction_id}'`
+    }).firstPage();
+
+    if (records.length === 0) {
+        console.error("Webhook Error: Could not find matching Airtable record for:", transaction_id);
+        // Acknowledge the webhook to prevent retries
+        return res.status(200).json({ ok: false, error: "Record not found. Webhook acknowledged." });
+    }
+    
+    const record = records[0];
+    const dataPlanFromAirtable = record.get("Data Plan"); // ✅ Retrieved stored Data Plan
+    const recipientFromAirtable = record.get("Data Recipient Number"); // ✅ Retrieved stored Recipient
+    
+    
+    // FIX FOR WORKFLOW & ERROR: Override status to "Pending" for successful payments
     const orderStatus = status.toLowerCase() === "success" ? "Pending" : status;
-    // FIX END
 
     // Ensure amount is a number
     amount = Number(amount);
     if (isNaN(amount)) return res.status(400).json({ ok: false, error: "Invalid amount value" });
 
-    // 1️⃣ Create Airtable record after confirmed payment
-    const airtableRecord = await table.create([
-      {
-        fields: {
-          "Order ID": transaction_id,
-          "Customer Phone": phone_number,
-          "Data Recipient Number": recipient || phone_number,
-          "Data Plan": dataPlan || "Unknown",
-          "Amount": amount,
-          "Status": orderStatus, // 🎯 Now uses "Pending" for successful payments
-          "Hubtel Sent": true,
-          "Hubtel Response": "",
-          "BulkClix Response": JSON.stringify(req.body)
-        }
-      }
-    ]);
+    // 1️⃣ Update Airtable record with final status and webhook data
+    await table.update(record.id, {
+        "Amount": amount, 
+        "Status": orderStatus, // Sets status to "Pending"
+        "BulkClix Response": JSON.stringify(req.body) 
+    });
 
     // 2️⃣ Send SMS via Hubtel to Customer Phone
-    const smsContent = `Your data purchase of ${dataPlan} for ${phone_number} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
+    // ✅ FIX: Use the retrieved dataPlanFromAirtable variable
+    const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${phone_number} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
     const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
 
     const smsResponse = await axios.get(smsUrl);
 
     // 3️⃣ Update Airtable with Hubtel SMS response
-    await table.update(airtableRecord[0].id, {
-      "Hubtel Response": JSON.stringify(smsResponse.data)
+    await table.update(record.id, {
+        "Hubtel Response": JSON.stringify(smsResponse.data),
+        "Hubtel Sent": true,
     });
 
     res.json({ ok: true, message: "Payment received & SMS sent" });
