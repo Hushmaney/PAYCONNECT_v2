@@ -31,7 +31,8 @@ app.get("/test", (req, res) => {
 // ----------------- START CHECKOUT (BulkClix MOMO) -----------------
 app.post("/api/start-checkout", async (req, res) => {
   try {
-    const { email, phone, recipient, dataPlan, amount, network } = req.body;
+    // 'email' is destructured here
+    const { email, phone, recipient, dataPlan, amount, network } = req.body; 
 
     if (!phone || !recipient || !dataPlan || !amount || !network) {
       return res.status(400).json({ ok: false, error: "Missing required fields" });
@@ -76,17 +77,17 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
-    // ⭐ FIX: Create initial Airtable record to store custom data.
-    // Setting Status to "Pending" to avoid the "Initiated" error.
+    // ⭐ FIX: Create initial Airtable record to store custom data INCLUDING EMAIL.
     await table.create([
         {
             fields: {
                 "Order ID": transaction_id,
                 "Customer Phone": phone,
+                "Customer Email": email, // 🎯 ADDED: Customer Email field
                 "Data Recipient Number": recipient,
                 "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Pending", // 🎯 Changed from "Initiated" to "Pending"
+                "Status": "Pending", 
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
@@ -135,7 +136,7 @@ app.post("/api/payment-webhook", async (req, res) => {
     
     const record = records[0];
     const dataPlanFromAirtable = record.get("Data Plan"); 
-    const recipientFromAirtable = record.get("Data Recipient Number"); // ✅ Retrieve the Recipient number
+    const recipientFromAirtable = record.get("Data Recipient Number"); 
     
     
     // FIX FOR WORKFLOW & ERROR: Override status to "Pending" for successful payments
@@ -148,12 +149,12 @@ app.post("/api/payment-webhook", async (req, res) => {
     // 1️⃣ Update Airtable record with final status and webhook data
     await table.update(record.id, {
         "Amount": amount, 
-        "Status": orderStatus, // Sets status to "Pending" (or the failed status)
+        "Status": orderStatus, 
         "BulkClix Response": JSON.stringify(req.body) 
     });
 
     // 2️⃣ Send SMS via Hubtel to Customer Phone
-    // ✅ FIX: The SMS content now explicitly shows the Data Recipient Number
+    // The SMS content now explicitly shows the Data Recipient Number
     const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${recipientFromAirtable} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
     const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
