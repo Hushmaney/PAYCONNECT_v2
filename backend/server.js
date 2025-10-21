@@ -86,14 +86,14 @@ app.post("/api/start-checkout", async (req, res) => {
                 "Data Recipient Number": recipient,
                 "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Initiated", // 🎯 FIX: SET TO: Initiated
+                "Status": "Initiated", // Initial Status
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
     ]);
     // ⭐ END IMPLEMENTATION
 
-    // ✅ Send successful response back to frontend
+    // ✅ Send successful response back to frontend (Frontend will redirect based on this response)
     res.json({
       ok: true,
       message: "Payment initiated successfully",
@@ -101,7 +101,7 @@ app.post("/api/start-checkout", async (req, res) => {
         transaction_id: apiData.transaction_id,
         amount: apiData.amount,
         phone: apiData.phone_number,
-        status: "pending"
+        status: "Initiated" // Reflecting the status set in Airtable
       }
     });
 
@@ -148,7 +148,7 @@ app.post("/api/payment-webhook", async (req, res) => {
     // 1️⃣ Update Airtable record with final status and webhook data
     await table.update(record.id, {
         "Amount": amount, 
-        "Status": orderStatus, // 🎯 UPDATED TO: Pending if successful, or status if failed.
+        "Status": orderStatus, // Will be "Pending" if success, or "Failed" etc.
         "BulkClix Response": JSON.stringify(req.body) 
     });
 
@@ -177,23 +177,40 @@ app.post("/api/payment-webhook", async (req, res) => {
 });
 
 // ----------------- CHECK PAYMENT STATUS -----------------
+// ⭐ FIX IMPLEMENTED: Querying Airtable for the status instead of BulkClix
 app.get("/api/check-status/:transaction_id", async (req, res) => {
   try {
     const { transaction_id } = req.params;
-    const response = await axios.get(
-      `https://api.bulkclix.com/api/v1/payment-api/checkstatus/${transaction_id}`,
-      {
-        headers: {
-          "x-api-key": process.env.BULKCLIX_API_KEY,
-          "Accept": "application/json"
-        }
-      }
-    );
 
-    res.json({ ok: true, data: response.data });
+    // 1. Query Airtable for the record
+    const records = await table.select({
+        maxRecords: 1,
+        filterByFormula: `{Order ID} = '${transaction_id}'`
+    }).firstPage();
+
+    if (records.length === 0) {
+        return res.status(404).json({ 
+            ok: false, 
+            error: "Transaction record not found in Airtable." 
+        });
+    }
+    
+    const record = records[0];
+    // 2. Extract the Status field from the Airtable record
+    const airtableStatus = record.get("Status"); 
+
+    // 3. Send the Airtable status back to the frontend in the expected format
+    res.json({ 
+        ok: true, 
+        data: { 
+            status: airtableStatus, // e.g., "Initiated", "Pending", "Failed"
+            transaction_id: transaction_id
+        } 
+    });
+
   } catch (err) {
-    console.error("Check Status Error:", err.response?.data || err.message);
-    res.status(500).json({ ok: false, error: err.response?.data || err.message });
+    console.error("Check Status Error:", err.message);
+    res.status(500).json({ ok: false, error: "Internal server error while checking status." });
   }
 });
 
