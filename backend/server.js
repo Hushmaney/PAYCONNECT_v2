@@ -134,8 +134,8 @@ app.post("/api/payment-webhook", async (req, res) => {
     }
     
     const record = records[0];
-    const dataPlanFromAirtable = record.get("Data Plan"); // ✅ Retrieve stored Data Plan
-    // const recipientFromAirtable = record.get("Data Recipient Number"); // Not needed for SMS
+    const dataPlanFromAirtable = record.get("Data Plan"); 
+    const recipientFromAirtable = record.get("Data Recipient Number"); // ✅ Retrieve the Recipient number
     
     
     // FIX FOR WORKFLOW & ERROR: Override status to "Pending" for successful payments
@@ -153,8 +153,8 @@ app.post("/api/payment-webhook", async (req, res) => {
     });
 
     // 2️⃣ Send SMS via Hubtel to Customer Phone
-    // ✅ Use the retrieved dataPlanFromAirtable variable
-    const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${phone_number} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
+    // ✅ FIX: The SMS content now explicitly shows the Data Recipient Number
+    const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${recipientFromAirtable} has been processed and will be delivered in 30 minutes to 4 hours. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
     const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
 
