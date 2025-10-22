@@ -1,6 +1,6 @@
 import express from "express";
 import axios from "axios";
-import Airtable from "airtable";
+// import Airtable from "airtable"; // REMOVED: No longer needed for Baserow
 import dotenv from "dotenv";
 import cors from "cors";
 
@@ -10,9 +10,19 @@ const app = express();
 app.use(express.json());
 app.use(cors()); // allow cross-origin requests from frontend
 
-// ----------------- AIRTABLE SETUP -----------------
-const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(process.env.AIRTABLE_BASE);
-const table = base(process.env.AIRTABLE_TABLE);
+// ----------------- BASEROW SETUP -----------------
+// Use environment variables directly
+const BASEROW_HOST_URL = process.env.BASEROW_HOST_URL;
+const BASEROW_API_KEY = process.env.BASEROW_API_KEY;
+const BASEROW_TABLE_ID = process.env.BASEROW_TABLE_ID;
+
+// Define helper function for authentication headers
+const baserowHeaders = {
+    'Authorization': `Token ${BASEROW_API_KEY}`,
+    'Content-Type': 'application/json'
+};
+// ----------------- END BASEROW SETUP -----------------
+
 
 // ----------------- TEST ROUTE -----------------
 app.get("/test", (req, res) => {
@@ -21,7 +31,8 @@ app.get("/test", (req, res) => {
     message: "PAYCONNECT backend is live 🎉",
     env: {
       BULKCLIX_API_KEY: process.env.BULKCLIX_API_KEY ? "✅ Loaded" : "❌ Missing",
-      AIRTABLE_API_KEY: process.env.AIRTABLE_API_KEY ? "✅ Loaded" : "❌ Missing",
+      // Updated to check Baserow key instead of Airtable key
+      BASEROW_API_KEY: process.env.BASEROW_API_KEY ? "✅ Loaded" : "❌ Missing", 
       HUBTEL_CLIENT_ID: process.env.HUBTEL_CLIENT_ID ? "✅ Loaded" : "❌ Missing",
       HUBTEL_CLIENT_SECRET: process.env.HUBTEL_CLIENT_SECRET ? "✅ Loaded" : "❌ Missing"
     }
@@ -31,8 +42,6 @@ app.get("/test", (req, res) => {
 // ----------------- START CHECKOUT (BulkClix MOMO) -----------------
 app.post("/api/start-checkout", async (req, res) => {
   try {
-    // Note: deliveryType is received here, but it's already part of dataPlan, 
-    // so we don't need to store it separately in Airtable.
     const { email, phone, recipient, dataPlan, amount, network } = req.body; 
 
     if (!phone || !recipient || !dataPlan || !amount || !network) {
@@ -42,7 +51,7 @@ app.post("/api/start-checkout", async (req, res) => {
     // Generate a unique transaction ID
     const transaction_id = "T" + Math.floor(Math.random() * 1e15);
 
-    // Call BulkClix API to initiate Momo payment
+    // Call BulkClix API to initiate Momo payment (UNCHANGED)
     let response;
     try {
       response = await axios.post(
@@ -50,7 +59,7 @@ app.post("/api/start-checkout", async (req, res) => {
         {
           amount,
           phone_number: phone,
-          network, // "MTN", "TELECEL", or "AIRTELTIGO"
+          network, 
           transaction_id,
           callback_url: "https://payconnect-v2.onrender.com/api/payment-webhook",
           reference: "PAYCONNECT"
@@ -78,21 +87,30 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
-    // Create initial Airtable record.
-    await table.create([
-        {
-            fields: {
+    // 🎯 REWRITE: Create initial BASEROW record (Replaced Airtable logic)
+    try {
+        const createUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/?user_field_names=true`;
+
+        await axios.post(
+            createUrl,
+            {
                 "Order ID": transaction_id,
                 "Customer Phone": phone,
-                "Customer Email": email, 
+                "Customer Email": email,
                 "Data Recipient Number": recipient,
-                "Data Plan": dataPlan, 
+                "Data Plan": dataPlan,
                 "Amount": amount,
-                "Status": "Initiated", 
+                "Status": "Initiated", // Use the option value
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
-            }
-        }
-    ]);
+            },
+            { headers: baserowHeaders }
+        );
+    } catch (dbErr) {
+        console.error("Baserow Create Error:", dbErr.response?.data || dbErr.message);
+        // We log the error but still proceed with the response since the payment initiation succeeded
+        // The user can still check status later
+    }
+
 
     // ✅ Send successful response back to frontend
     res.json({
@@ -107,7 +125,7 @@ app.post("/api/start-checkout", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Start Checkout Error:", err.message);
+    console.error("Start Checkout Outer Error:", err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -122,19 +140,23 @@ app.post("/api/payment-webhook", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing payment data" });
     }
 
-    // 🎯 STEP 1: Find the existing Airtable record using the Order ID
-    const records = await table.select({
-        filterByFormula: `{Order ID} = '${transaction_id}'`
-    }).firstPage();
+    // 🎯 STEP 1: Find the existing Baserow record using the Order ID
+    const filterUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/?user_field_names=true&filter__Order%20ID__equal=${transaction_id}`;
+
+    const baserowFindResponse = await axios.get(filterUrl, { headers: baserowHeaders });
+    const records = baserowFindResponse.data.results;
 
     if (records.length === 0) {
-        console.error("Webhook Error: Could not find matching Airtable record for:", transaction_id);
+        console.error("Webhook Error: Could not find matching Baserow record for:", transaction_id);
         return res.status(200).json({ ok: false, error: "Record not found. Webhook acknowledged." });
     }
     
     const record = records[0];
-    const dataPlanFromAirtable = record.get("Data Plan"); 
-    const recipientFromAirtable = record.get("Data Recipient Number"); 
+    const baserowRowId = record.id; // CRITICAL: Get the internal Baserow row ID for updating
+    
+    // Baserow fields are accessed directly as properties
+    const dataPlanFromAirtable = record["Data Plan"]; 
+    const recipientFromAirtable = record["Data Recipient Number"]; 
     
     
     // Override status to "Pending" ONLY for successful payments.
@@ -144,17 +166,23 @@ app.post("/api/payment-webhook", async (req, res) => {
     amount = Number(amount);
     if (isNaN(amount)) return res.status(400).json({ ok: false, error: "Invalid amount value" });
 
-    // 1️⃣ Update Airtable record with final status and webhook data
-    await table.update(record.id, {
-        "Amount": amount, 
-        "Status": orderStatus, // Status field
-        "BulkClix Response": JSON.stringify(req.body) 
-    });
+    // 1️⃣ Update Baserow record with final status and webhook data
+    const updateUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/${baserowRowId}/?user_field_names=true`;
+
+    await axios.patch(
+        updateUrl,
+        {
+            "Amount": amount, 
+            "Status": orderStatus, // Status field
+            "BulkClix Response": JSON.stringify(req.body) 
+        },
+        { headers: baserowHeaders }
+    );
 
     // We only send SMS on successful status (Pending). 
     if (orderStatus === "Pending") {
         
-        // ⭐ CRITICAL FIX: Determine delivery timeframe by checking the Data Plan string
+        // ⭐ Determine delivery timeframe 
         let deliveryTimeframe = "30 minutes to 4 hours"; // Default for Normal
         // Check if the dataPlan string contains the "(Express)" tag
         if (dataPlanFromAirtable && dataPlanFromAirtable.includes("(Express)")) {
@@ -164,16 +192,20 @@ app.post("/api/payment-webhook", async (req, res) => {
         // ⭐ Use the dynamic delivery timeframe in the SMS content
         const smsContent = `Your data purchase of ${dataPlanFromAirtable} for ${recipientFromAirtable} has been processed and will be delivered in ${deliveryTimeframe}. Order ID: ${transaction_id}. For support, WhatsApp: 233531300654`;
 
-        // 2️⃣ Send SMS via Hubtel to Customer Phone
+        // 2️⃣ Send SMS via Hubtel to Customer Phone (UNCHANGED)
         const smsUrl = `https://smsc.hubtel.com/v1/messages/send?clientsecret=${process.env.HUBTEL_CLIENT_SECRET}&clientid=${process.env.HUBTEL_CLIENT_ID}&from=PAYCONNECT&to=${phone_number}&content=${encodeURIComponent(smsContent)}`;
 
         const smsResponse = await axios.get(smsUrl);
 
-        // 3️⃣ Update Airtable with Hubtel SMS response
-        await table.update(record.id, {
-            "Hubtel Response": JSON.stringify(smsResponse.data),
-            "Hubtel Sent": true,
-        });
+        // 3️⃣ Update Baserow with Hubtel SMS response
+        await axios.patch(
+            updateUrl,
+            {
+                "Hubtel Response": JSON.stringify(smsResponse.data),
+                "Hubtel Sent": true,
+            },
+            { headers: baserowHeaders }
+        );
     }
 
     res.json({ ok: true, message: "Payment received & record updated" });
@@ -189,28 +221,31 @@ app.get("/api/check-status/:transaction_id", async (req, res) => {
   try {
     const { transaction_id } = req.params;
 
-    // 1. Query Airtable for the record
-    const records = await table.select({
-        maxRecords: 1,
-        filterByFormula: `{Order ID} = '${transaction_id}'`
-    }).firstPage();
+    // 1. Query Baserow for the record
+    const filterUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/?user_field_names=true&filter__Order%20ID__equal=${transaction_id}`;
+
+    const baserowFindResponse = await axios.get(filterUrl, { headers: baserowHeaders });
+    const records = baserowFindResponse.data.results;
 
     if (records.length === 0) {
         return res.status(404).json({ 
             ok: false, 
-            error: "Transaction record not found in Airtable." 
+            error: "Transaction record not found in Baserow." 
         });
     }
     
     const record = records[0];
-    // 2. Extract the Status field from the Airtable record
-    const airtableStatus = record.get("Status"); // Status field
+    
+    // 2. Extract the Status field from the Baserow record
+    // Baserow returns the Status as an object, we need the "value" property.
+    const baserowStatusObject = record["Status"]; 
+    const currentStatus = baserowStatusObject ? baserowStatusObject.value : 'Unknown';
 
-    // 3. Send the Airtable status back to the frontend in the expected format
+    // 3. Send the status back to the frontend
     res.json({ 
         ok: true, 
         data: { 
-            status: airtableStatus, 
+            status: currentStatus, 
             transaction_id: transaction_id
         } 
     });
@@ -221,17 +256,17 @@ app.get("/api/check-status/:transaction_id", async (req, res) => {
   }
 });
 
-// ----------------- CANCEL TRANSACTION (UPDATED - NOTES FIELD REMOVED) -----------------
+// ----------------- CANCEL TRANSACTION -----------------
 // Called by the frontend when the user clicks "Cancel Transaction"
 app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
     try {
         const { transaction_id } = req.params;
 
-        // 1. Find the existing Airtable record using the Order ID
-        const records = await table.select({
-            maxRecords: 1,
-            filterByFormula: `{Order ID} = '${transaction_id}'`
-        }).firstPage();
+        // 1. Find the existing Baserow record using the Order ID
+        const filterUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/?user_field_names=true&filter__Order%20ID__equal=${transaction_id}`;
+
+        const baserowFindResponse = await axios.get(filterUrl, { headers: baserowHeaders });
+        const records = baserowFindResponse.data.results;
 
         if (records.length === 0) {
             console.warn(`Attempted to cancel non-existent transaction: ${transaction_id}`);
@@ -242,17 +277,22 @@ app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
         }
         
         const record = records[0];
+        const baserowRowId = record.id;
         
-        // 2. Update the Status field to "Failed" in Airtable
-        // *** ONLY "Status" IS UPDATED, RESOLVING THE "Unknown field name: Notes" ERROR ***
-        await table.update(record.id, {
-            "Status": "Failed",
-            // "Notes" field has been removed here: "Notes": "Cancelled by user on frontend."
-        });
+        // 2. Update the Status field to "Failed" in Baserow
+        const updateUrl = `${BASEROW_HOST_URL}/api/database/rows/table/${BASEROW_TABLE_ID}/${baserowRowId}/?user_field_names=true`;
+
+        await axios.patch(
+            updateUrl,
+            {
+                "Status": "Failed",
+            },
+            { headers: baserowHeaders }
+        );
         
         console.log(`Transaction ${transaction_id} marked as Failed by user cancellation.`);
 
-        // 3. Send success response back to frontend (which will then display 'Canceled' and redirect)
+        // 3. Send success response back to frontend
         res.json({ 
             ok: true, 
             message: "Transaction status successfully updated to Failed." 
