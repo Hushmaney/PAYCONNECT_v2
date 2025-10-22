@@ -78,7 +78,7 @@ app.post("/api/start-checkout", async (req, res) => {
       return res.status(500).json({ ok: false, error: "Failed to initiate BulkClix payment" });
     }
 
-    // Create initial Airtable record. NO CHANGE TO AIRTABLE SCHEMA HERE.
+    // Create initial Airtable record.
     await table.create([
         {
             fields: {
@@ -86,9 +86,9 @@ app.post("/api/start-checkout", async (req, res) => {
                 "Customer Phone": phone,
                 "Customer Email": email, 
                 "Data Recipient Number": recipient,
-                "Data Plan": dataPlan, // This field now contains "(Normal)" or "(Express)"
+                "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Initiated", 
+                "Status": "Initiated", // Status field
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
@@ -147,7 +147,7 @@ app.post("/api/payment-webhook", async (req, res) => {
     // 1️⃣ Update Airtable record with final status and webhook data
     await table.update(record.id, {
         "Amount": amount, 
-        "Status": orderStatus, 
+        "Status": orderStatus, // Status field
         "BulkClix Response": JSON.stringify(req.body) 
     });
 
@@ -204,7 +204,7 @@ app.get("/api/check-status/:transaction_id", async (req, res) => {
     
     const record = records[0];
     // 2. Extract the Status field from the Airtable record
-    const airtableStatus = record.get("Status"); 
+    const airtableStatus = record.get("Status"); // Status field
 
     // 3. Send the Airtable status back to the frontend in the expected format
     res.json({ 
@@ -244,7 +244,7 @@ app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
         const record = records[0];
         
         // 2. Update the Status field to "Failed" in Airtable
-        // This fulfills the requirement to update the initiated transaction status to Failed.
+        // Uses the confirmed field name: "Status"
         await table.update(record.id, {
             "Status": "Failed",
             "Notes": "Cancelled by user on frontend."
