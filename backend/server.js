@@ -88,7 +88,7 @@ app.post("/api/start-checkout", async (req, res) => {
                 "Data Recipient Number": recipient,
                 "Data Plan": dataPlan, 
                 "Amount": amount,
-                "Status": "Initiated", // Status field
+                "Status": "Initiated", 
                 "BulkClix Response": JSON.stringify({ initiation: response.data })
             }
         }
@@ -221,7 +221,7 @@ app.get("/api/check-status/:transaction_id", async (req, res) => {
   }
 });
 
-// ----------------- CANCEL TRANSACTION (NEW ENDPOINT) -----------------
+// ----------------- CANCEL TRANSACTION (UPDATED - NOTES FIELD REMOVED) -----------------
 // Called by the frontend when the user clicks "Cancel Transaction"
 app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
     try {
@@ -244,10 +244,10 @@ app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
         const record = records[0];
         
         // 2. Update the Status field to "Failed" in Airtable
-        // Uses the confirmed field name: "Status"
+        // *** ONLY "Status" IS UPDATED, RESOLVING THE "Unknown field name: Notes" ERROR ***
         await table.update(record.id, {
             "Status": "Failed",
-            "Notes": "Cancelled by user on frontend."
+            // "Notes" field has been removed here: "Notes": "Cancelled by user on frontend."
         });
         
         console.log(`Transaction ${transaction_id} marked as Failed by user cancellation.`);
