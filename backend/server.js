@@ -221,6 +221,50 @@ app.get("/api/check-status/:transaction_id", async (req, res) => {
   }
 });
 
+// ----------------- CANCEL TRANSACTION (NEW ENDPOINT) -----------------
+// Called by the frontend when the user clicks "Cancel Transaction"
+app.post("/api/cancel-transaction/:transaction_id", async (req, res) => {
+    try {
+        const { transaction_id } = req.params;
+
+        // 1. Find the existing Airtable record using the Order ID
+        const records = await table.select({
+            maxRecords: 1,
+            filterByFormula: `{Order ID} = '${transaction_id}'`
+        }).firstPage();
+
+        if (records.length === 0) {
+            console.warn(`Attempted to cancel non-existent transaction: ${transaction_id}`);
+            return res.status(404).json({ 
+                ok: false, 
+                error: "Transaction record not found to cancel." 
+            });
+        }
+        
+        const record = records[0];
+        
+        // 2. Update the Status field to "Failed" in Airtable
+        // This fulfills the requirement to update the initiated transaction status to Failed.
+        await table.update(record.id, {
+            "Status": "Failed",
+            "Notes": "Cancelled by user on frontend."
+        });
+        
+        console.log(`Transaction ${transaction_id} marked as Failed by user cancellation.`);
+
+        // 3. Send success response back to frontend (which will then display 'Canceled' and redirect)
+        res.json({ 
+            ok: true, 
+            message: "Transaction status successfully updated to Failed." 
+        });
+
+    } catch (err) {
+        console.error("Cancel Transaction Error:", err.message);
+        res.status(500).json({ ok: false, error: "Internal server error during cancellation." });
+    }
+});
+
+
 // ----------------- START SERVER -----------------
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`PAYCONNECT backend listening on port ${PORT}`));
