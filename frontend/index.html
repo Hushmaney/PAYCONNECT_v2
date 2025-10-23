@@ -11,6 +11,10 @@
         padding: 24px;
         margin: 0;
       }
+      /* Ensure the body does not scroll when the overlay is active */
+      body.lock-scroll {
+        overflow: hidden;
+      }
       .card {
         background: white;
         max-width: 720px;
@@ -18,6 +22,9 @@
         padding: 20px;
         border-radius: 10px;
         box-shadow: 0 6px 18px rgba(31, 41, 55, 0.06);
+        /* Ensure card is above the default messages but underneath the overlay */
+        position: relative;
+        z-index: 2;
       }
       h1 {
         margin: 0 0 16px 0;
@@ -61,6 +68,7 @@
         margin-top: 6px;
         text-align: center;
       }
+      /* Standard Message Styles */
       .success,
       .error,
       .info {
@@ -82,6 +90,56 @@
         background: #eff6ff;
         color: #1e3a8a;
       }
+
+      /* ================================== */
+      /* NEW CSS for Centered Overlay */
+      /* ================================== */
+      #fullScreenOverlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(255, 255, 255, 0.95); /* Light translucent background */
+          display: none; /* Hidden by default */
+          z-index: 1000; /* High z-index to cover everything */
+          
+          /* Centering logic */
+          align-items: center; /* Vertically center */
+          justify-content: center; /* Horizontally center */
+          
+          /* Transition for smooth display */
+          opacity: 0; 
+          transition: opacity 0.3s;
+      }
+
+      #overlayMessageContent {
+          background: #eff6ff; /* info blue color */
+          color: #1e3a8a;
+          padding: 30px 40px;
+          border-radius: 12px;
+          box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+          max-width: 80%;
+          text-align: center;
+          font-size: 18px;
+          font-weight: 600;
+          line-height: 1.5;
+      }
+
+      .spinner {
+          border: 4px solid rgba(11, 116, 255, 0.2);
+          border-top: 4px solid #0b74ff;
+          border-radius: 50%;
+          width: 25px;
+          height: 25px;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 15px auto;
+      }
+      @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+      }
+      /* ================================== */
     </style>
   </head>
 
@@ -92,18 +150,44 @@
       <label>Customer Email (optional)</label>
       <input id="email" placeholder="you@example.com" type="email" />
 
-      <label>Customer Phone</label>
-      <input id="phone" placeholder="0501234567 or +233501234567" />
-
-      <label>Data Recipient Number (where data will be delivered)</label>
-      <input id="recipient" placeholder="0501234567" />
-
-      <label>Network</label>
-      <select id="network">
-        <option value="">Select Network</option>
+      <label>Customer Phone (Payer's MoMo Number)</label>
+      <input 
+        id="phone" 
+        placeholder="0541234567"
+        type="tel" 
+        pattern="[0-9]{10}" 
+        maxlength="10"
+        title="Phone number must be exactly 10 digits long (e.g., 0541234567)"
+      />
+      
+      <select id="payerNetwork" style="margin-top: 12px;">
+        <option value="">Select Payer's MoMo Network</option>
         <option value="MTN">MTN</option>
-        <option value="Telecel">Telecel</option>
-        <option value="AirtelTigo">AirtelTigo</option>
+        <option value="TELECEL">Telecel</option>
+        <option value="AIRTELTIGO">AirtelTigo</option>
+      </select>
+      <label>Data Recipient Number (where data will be delivered)</label>
+      <input 
+        id="recipient" 
+        placeholder="0541234567" 
+        type="tel"
+        pattern="[0-9]{10}" 
+        maxlength="10"
+        title="Recipient number must be exactly 10 digits long (e.g., 0541234567)"
+      />
+
+      <label>Data Recipient Network</label>
+      <select id="recipientNetwork">
+        <option value="">Select Recipient Network</option>
+        <option value="MTN">MTN</option>
+        <option value="TELECEL">Telecel</option>
+        <option value="AIRTELTIGO">AirtelTigo</option>
+      </select>
+      
+      <label>Delivery Type</label>
+      <select id="deliverytype">
+        <option value="Normal">Normal Delivery (30 mins - 4 hours)</option>
+        <option value="Express">Express Delivery (5 - 30 mins)</option>
       </select>
 
       <label>Data Plan</label>
@@ -113,11 +197,16 @@
       <input id="amount" readonly />
 
       <div class="muted">
-        After clicking <strong>Pay</strong>, you will be redirected to a secure payment page.
+        After clicking <strong>Pay</strong>, you will be redirected to a confirmation page.
       </div>
       <button id="payBtn">Pay</button>
 
       <div id="message"></div>
+    </div>
+    
+    <div id="fullScreenOverlay">
+        <div id="overlayMessageContent">
+            </div>
     </div>
 
     <script>
@@ -126,99 +215,245 @@
       // ===============================
       const PLANS = {
         MTN: [
-          ["1GB", 1.00],
-          ["2GB", 11.00],
-          ["3GB", 15.50],
-          ["4GB", 21.00],
-          ["5GB", 25.00],
-          ["6GB", 32.00],
-          ["8GB", 40.00],
-          ["10GB", 50.00],
-          ["15GB", 72.00],
-          ["20GB", 87.00],
-          ["25GB", 110.00],
-          ["30GB", 135.00],
-          ["40GB", 175.00],
-          ["50GB", 210.00],
-          ["100GB", 405.00],
+          ["1GB", 5.50, 7.00],
+          ["2GB", 11.00, 13.00],
+          ["3GB", 15.50, 17.00],
+          ["4GB", 21.00, 23.00],
+          ["5GB", 25.00, 27.00],
+          ["6GB", 32.00, 35.00],
+          ["8GB", 40.00, 42.00],
+          ["10GB", 50.00, 52.00],
+          ["15GB", 72.00, 74.00],
+          ["20GB", 87.00, 89.00],
+          ["25GB", 110.00, 112.00],
+          ["30GB", 135.00, 137.00],
+          ["40GB", 175.00, 177.00],
+          ["50GB", 210.00, 212.00],
+          ["100GB", 405.00, 407.00],
         ],
-        Telecel: [
-          ["5GB", 24.00],
-          ["10GB", 44.00],
-          ["15GB", 63.00],
-          ["20GB", 83.00],
-          ["25GB", 101.00],
-          ["30GB", 121.00],
-          ["35GB", 150.00],
-          ["40GB", 161.00],
-          ["45GB", 190.00],
-          ["50GB", 202.00],
-          ["100GB", 375.00],
+        TELECEL: [ 
+          ["5GB", 24.00, 27.00],
+          ["10GB", 44.00, 47.00],
+          ["15GB", 63.00, 65.00],
+          ["20GB", 83.00, 85.00],
+          ["25GB", 101.00, 103.00],
+          ["30GB", 121.00, 122.00],
+          ["35GB", 150.00, 152.00],
+          ["40GB", 161.00, 163.00],
+          ["45GB", 190.00, 192.00],
+          ["50GB", 202.00, 204.00],
+          ["100GB", 375.00, 377.00],
         ],
-        AirtelTigo: [
-          ["1GB", 4.50],
-          ["2GB", 8.50],
-          ["3GB", 13.00],
-          ["4GB", 17.00],
-          ["5GB", 23.00],
-          ["6GB", 28.00],
-          ["7GB", 32.00],
-          ["8GB", 41.00],
-          ["10GB", 47.00],
-          ["12GB", 55.00],
-          ["15GB", 72.00],
-          ["20GB", 82.00],
-          ["25GB", 98.00],
-          ["30GB", 128.00],
-          ["40GB", 175.00],
-          ["50GB", 230.00],
-          ["100GB", 440.00],
+        AIRTELTIGO: [ 
+          ["1GB", 4.50, 5.00],
+          ["2GB", 8.50, 9.50],
+          ["3GB", 13.00, 14.00],
+          ["4GB", 17.00, 18.00],
+          ["5GB", 23.00, 24.00],
+          ["6GB", 28.00, 29.00],
+          ["7GB", 32.00, 33.00],
+          ["8GB", 41.00, 42.00],
+          ["10GB", 47.00, 48.00],
+          ["12GB", 55.00, 56.00],
+          ["15GB", 72.00, 73.00],
+          ["20GB", 82.00, 83.00],
+          ["25GB", 98.00, 99.00],
+          ["30GB", 128.00, 129.00],
+          ["40GB", 175.00, 176.00],
+          ["50GB", 230.00, 231.00],
+          ["100GB", 440.00, 441.00],
         ],
       };
 
-      const networkSel = document.getElementById("network");
+      // Get references to all form fields and the button
+      const phoneInput = document.getElementById("phone");
+      const emailInput = document.getElementById("email");
+      const recipientInput = document.getElementById("recipient");
+      const recipientNetworkSel = document.getElementById("recipientNetwork");
+      const payerNetworkSel = document.getElementById("payerNetwork"); 
+      const deliveryTypeSel = document.getElementById("deliverytype"); 
       const planSel = document.getElementById("dataplan");
       const amountInput = document.getElementById("amount");
+      const payBtn = document.getElementById("payBtn"); 
+      
+      // NEW: Get overlay elements
+      const overlay = document.getElementById("fullScreenOverlay");
+      const overlayContent = document.getElementById("overlayMessageContent");
 
-      networkSel.addEventListener("change", () => {
-        populatePlans();
+
+      // Event listeners for changes that affect the plan options or price
+      recipientNetworkSel.addEventListener("change", populatePlans);
+      deliveryTypeSel.addEventListener("change", populatePlans); 
+      planSel.addEventListener("change", updateAmount);
+      
+      // Auto-detect network when phone number changes (Payer)
+      phoneInput.addEventListener("input", () => autoDetectNetwork(phoneInput.value, payerNetworkSel)); 
+      
+      // Auto-detect network when recipient number changes (Recipient)
+      recipientInput.addEventListener("input", () => {
+          autoDetectNetwork(recipientInput.value, recipientNetworkSel);
       });
+      
+
+      // Function to detect network based on number input
+      function autoDetectNetwork(number, targetSelect) {
+          const trimmedNumber = number.trim();
+          let detectedNetwork = '';
+
+          if (trimmedNumber.length >= 3) {
+              const prefix = trimmedNumber.substring(0, 3);
+              
+              // MTN Prefixes: 024, 025, 053, 054, 055, 059
+              if (['024', '025', '053', '054', '055', '059'].includes(prefix)) {
+                  detectedNetwork = 'MTN';
+              // Telecel Prefixes: 020, 050
+              } else if (['020', '050'].includes(prefix)) {
+                  detectedNetwork = 'TELECEL';
+              // AirtelTigo Prefixes: 026, 027, 056, 057
+              } else if (['026', '027', '056', '057'].includes(prefix)) {
+                  detectedNetwork = 'AIRTELTIGO';
+              }
+          }
+          
+          // Update the target dropdown
+          targetSelect.value = detectedNetwork;
+          
+          // If the recipient network changed, re-populate plans to update price/options
+          if (targetSelect === recipientNetworkSel) {
+              populatePlans();
+          }
+      }
+
+      // FUNCTION: Locks and unlocks the entire form (INCLUDING phone and recipient)
+      function toggleFormLock(isLocking) {
+          // Input fields
+          emailInput.readOnly = isLocking;
+          phoneInput.readOnly = isLocking; 
+          recipientInput.readOnly = isLocking; 
+          
+          // Select dropdowns (must use disabled)
+          recipientNetworkSel.disabled = isLocking;
+          payerNetworkSel.disabled = isLocking;
+          deliveryTypeSel.disabled = isLocking;
+          planSel.disabled = isLocking;
+
+          // The amount field is already readonly, but we'll include it for completeness
+          amountInput.readOnly = isLocking; 
+
+          // Pay Button (must be disabled)
+          payBtn.disabled = isLocking;
+      }
+
 
       function populatePlans() {
         planSel.innerHTML = "";
-        const selectedNetwork = networkSel.value;
+        // Use the recipient network value to look up the correct plans
+        const selectedNetwork = recipientNetworkSel.value; 
         if (!selectedNetwork) return;
+        
         const plans = PLANS[selectedNetwork];
+        
+        // Determine which price index to use: 1 for Normal, 2 for Express
+        const priceIndex = deliveryTypeSel.value === "Express" ? 2 : 1; 
+
         plans.forEach((p) => {
+          const dataAmount = p[0];
+          const price = p[priceIndex]; // Use the price based on Delivery Type
+          
           const opt = document.createElement("option");
-          opt.value = JSON.stringify({ name: `${selectedNetwork} ${p[0]}`, price: p[1] });
-          opt.textContent = `${p[0]} — GHS ${p[1].toFixed(2)}`;
+          
+          // Store all necessary data in the value (includes the Recipient Network name)
+          opt.value = JSON.stringify({ 
+              name: `${selectedNetwork} ${dataAmount}`, 
+              normalPrice: p[1],
+              expressPrice: p[2]
+          });
+          
+          // Show the price relevant to the current delivery selection
+          opt.textContent = `${dataAmount} — GHS ${price.toFixed(2)} (${deliveryTypeSel.value})`; 
           planSel.appendChild(opt);
         });
         updateAmount();
       }
-
+      
       function updateAmount() {
         try {
-          amountInput.value = JSON.parse(planSel.value).price.toFixed(2);
+          const selectedPlanValue = JSON.parse(planSel.value);
+          const deliveryType = deliveryTypeSel.value;
+          let finalPrice;
+
+          if (deliveryType === "Express") {
+              finalPrice = selectedPlanValue.expressPrice;
+          } else {
+              finalPrice = selectedPlanValue.normalPrice;
+          }
+          
+          amountInput.value = finalPrice.toFixed(2);
+          
         } catch (e) {
           amountInput.value = "";
         }
       }
+      
+      // Initialize plans when the page loads
+      document.addEventListener("DOMContentLoaded", () => {
+          if (recipientNetworkSel.value) { 
+              populatePlans();
+          }
+      });
 
-      planSel.addEventListener("change", updateAmount);
+      // MODIFIED: showMessage now handles either in-card display (error/success) or overlay display (info)
+      function showMessage(text, type = "success") {
+        const m = document.getElementById("message");
+        
+        if (type === "info") {
+            // Display message in the full-screen overlay
+            overlayContent.innerHTML = `
+                <div class="spinner"></div>
+                ${text}
+            `;
+            // Show the overlay
+            overlay.style.display = 'flex';
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+                document.body.classList.add('lock-scroll'); // Lock scrolling
+            }, 10);
+            
+            // Clear any previous message in the standard location
+            m.innerHTML = "";
 
+        } else {
+            // Display error or success message in the standard card location
+            m.innerHTML = "";
+            const div = document.createElement("div");
+            div.textContent = text;
+            div.className = type;
+            m.appendChild(div);
+            
+            // Hide overlay when error or success occurs
+            overlay.style.opacity = '0';
+            document.body.classList.remove('lock-scroll');
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 300);
+        }
+      }
+      
       // ===============================
-      // PAYMENT HANDLER
+      // PAYMENT HANDLER: INITIATE & REDIRECT TO CONFIRMATION
       // ===============================
       document.getElementById("payBtn").addEventListener("click", async () => {
         const email = document.getElementById("email").value.trim();
         const phone = document.getElementById("phone").value.trim();
         const recipient = document.getElementById("recipient").value.trim();
-        const network = networkSel.value;
+        
+        const recipientNetwork = recipientNetworkSel.value;
+        const payerNetwork = payerNetworkSel.value; 
+        const deliveryType = deliveryTypeSel.value; 
 
-        if (!phone || !recipient || !network)
-          return showMessage("Please fill in Phone, Recipient and Network", "error");
+
+        if (!phone || !recipient || !recipientNetwork || !payerNetwork)
+          return showMessage("Please fill in ALL required fields.", "error");
 
         let parsed;
         try {
@@ -226,35 +461,53 @@
         } catch (e) {
           return showMessage("Choose a valid data plan", "error");
         }
+        
+        const amount = deliveryType === "Express" ? parsed.expressPrice : parsed.normalPrice;
 
-        const dataPlan = parsed.name;
-        const amount = parsed.price;
+        const dataPlan = `${parsed.name} (${deliveryType})`; 
+        
+        const payload = { 
+            email, 
+            phone,           // Payer's number (for MoMo prompt)
+            recipient,       // Recipient's number (for data delivery)
+            dataPlan, 
+            amount, 
+            network: payerNetwork, // Use Payer's network for the MoMo API call
+            deliveryType 
+        }; 
 
-        const payload = { email, phone, recipient, dataPlan, amount, network };
-        showMessage("Redirecting to secure payment...", "info");
-
+        // LOCK THE ENTIRE FORM AND SHOW FULL-SCREEN MESSAGE
+        toggleFormLock(true);
+        // UPDATED MESSAGE FOR CENTERED DISPLAY
+        showMessage("Processing payment request. Please check your phone for the prompt, do not close tab/window.", "info");
+        
         try {
-          const res = await fetch("https://payconnect-backend.onrender.com/api/start-checkout", {
+          const res = await fetch("https://payconnect-v2.onrender.com/api/start-checkout", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
+          
           const data = await res.json();
-          if (!res.ok) throw new Error(data?.error || "Failed to generate payment link");
-          window.location.href = data.paymentLink;
+          if (!res.ok) throw new Error(data?.error || "Failed to initiate payment");
+
+          const transactionId = data.data.transaction_id;
+
+          sessionStorage.setItem('transactionId', transactionId);
+
+          // Hide overlay right before redirecting
+          overlay.style.opacity = '0';
+          document.body.classList.remove('lock-scroll');
+          setTimeout(() => {
+              window.location.href = 'confirmation.html';
+          }, 300); 
+
         } catch (err) {
+          // UNLOCK THE FORM AND DISPLAY ERROR MESSAGE
           showMessage("Error: " + err.message, "error");
+          toggleFormLock(false); 
         }
       });
-
-      function showMessage(text, type = "success") {
-        const m = document.getElementById("message");
-        m.innerHTML = "";
-        const div = document.createElement("div");
-        div.textContent = text;
-        div.className = type;
-        m.appendChild(div);
-      }
     </script>
   </body>
 </html>

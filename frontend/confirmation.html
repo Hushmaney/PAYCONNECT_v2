@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PAYCONNECT — Awaiting Confirmation</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        background: #f6f7fb;
+        padding: 24px;
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        text-align: center;
+      }
+      .card {
+        background: white;
+        max-width: 400px; /* Reduced max-width for better focus */
+        width: 100%;
+        padding: 40px 20px;
+        border-radius: 10px;
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+        transition: all 0.3s ease;
+      }
+      .content-area {
+        min-height: 120px; /* Ensure content doesn't jump */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+      .loading-spinner {
+        border: 5px solid #e2e8f0;
+        border-top: 5px solid #0b74ff;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        margin: 15px auto 25px auto;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .icon {
+        margin: 10px auto 20px auto;
+      }
+      .icon-success {
+        color: #065f46;
+        width: 60px;
+        height: 60px;
+      }
+      .icon-error {
+        color: #7f1d1d;
+        width: 60px;
+        height: 60px;
+      }
+      .message {
+        padding: 12px;
+        border-radius: 8px;
+        margin-top: 16px;
+        font-weight: 600;
+        font-size: 16px;
+        width: 100%;
+        /* Default center alignment for success/error */
+        text-align: center; 
+      }
+      .success {
+        background: #ecfdf5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+      }
+      .error {
+        background: #fff1f2;
+        color: #7f1d1d;
+        border: 1px solid #fecaca;
+      }
+      .info {
+        background: #eff6ff;
+        color: #1e3a8a;
+        border: 1px solid #bfdbfe;
+        /* Custom styles for the info box to fit instructions */
+        text-align: left;
+        padding: 15px; 
+      }
+      .retry-button {
+        margin-top: 25px;
+        padding: 12px 20px;
+        background: #0b74ff;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        width: 100%;
+        font-size: 16px;
+        transition: background 0.3s;
+      }
+      .retry-button:hover {
+        background: #095fcc;
+      }
+      /* NEW STYLE for Cancel Button */
+      .cancel-button {
+        margin-top: 15px;
+        padding: 12px 20px;
+        background: #dc3545; /* Red color for cancel */
+        color: white;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        width: 100%;
+        font-size: 16px;
+        transition: background 0.3s;
+      }
+      .cancel-button:hover {
+        background: #c82333;
+      }
+
+      /* NEW CSS for instruction list */
+      .approval-instructions {
+        margin: 10px 0 0 0;
+        list-style-type: none;
+        padding-left: 0;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.4;
+      }
+      .approval-instructions li {
+        margin-bottom: 5px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="card">
+      <div id="status-display" class="content-area">
+        </div>
+    </div>
+
+    <script>
+      const FINAL_REDIRECT_URL = "https://ovaldataafrica.glide.page";
+      const STATUS_CHECK_INTERVAL = 5000; // 5 seconds
+      let pollInterval;
+      // Variable to store the ID for the cancel function
+      let currentTransactionId = null; 
+
+      // SVG Icons for modern look
+      const CHECK_ICON = `
+        <svg class="icon icon-success" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>
+        </svg>
+      `;
+
+      const X_ICON = `
+        <svg class="icon icon-error" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 10l4 4m0-4l-4 4M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/>
+        </svg>
+      `;
+
+      // Helper function to get the transaction ID from the URL
+      function getTransactionId() {
+        const transactionId = sessionStorage.getItem("transactionId");
+        
+        // Storing ID locally before removing from session storage
+        if (transactionId) {
+            currentTransactionId = transactionId;
+            sessionStorage.removeItem("transactionId"); 
+        }
+        return currentTransactionId;
+      }
+
+      // NEW FUNCTION: Handles the cancellation request
+      async function cancelTransaction() {
+          if (!currentTransactionId) {
+              return updateDisplay("Error: Cannot find transaction ID to cancel.", "error", false);
+          }
+
+          // Stop polling immediately
+          clearInterval(pollInterval);
+          
+          // Display processing message for the user
+          updateDisplay("Processing cancellation request...", "error", true);
+
+          try {
+              // Hypothetical API call to your backend to update the Airtable status to 'Failed'
+              // NOTE: This endpoint needs to be implemented on your backend to actually update Airtable!
+              const cancelRes = await fetch(
+                `https://payconnect-v2.onrender.com/api/cancel-transaction/${currentTransactionId}`,
+                {
+                    method: "POST", 
+                    headers: { "Content-Type": "application/json" }
+                }
+              );
+
+              if (cancelRes.ok) {
+                  // Display confirmation and initiate redirect
+                  updateDisplay("Transaction successfully cancelled. Status updated to Failed. Redirecting...", "error", false);
+                  
+                  // Final Redirect (2.5 seconds delay)
+                  setTimeout(() => {
+                      window.location.href = FINAL_REDIRECT_URL;
+                  }, 2500); 
+
+              } else {
+                  // If the API call fails
+                  const data = await cancelRes.json();
+                  throw new Error(data.error || "Failed to cancel transaction via API.");
+              }
+
+          } catch (err) {
+              console.error("Cancellation Error:", err);
+              // If cancellation API call fails, display error and let the retry button handle flow
+              updateDisplay("Cancellation failed: " + err.message + ". Please try again or start a new purchase.", "error", false);
+          }
+      }
+
+
+      // Function to update the message on the page (MODIFIED to include cancel button)
+      function updateDisplay(text, type = "info", showSpinner = true) {
+        const container = document.getElementById("status-display");
+        
+        let iconHtml = '';
+        let buttonHtml = '';
+        let spinnerHtml = showSpinner && type === 'info' ? '<div class="loading-spinner"></div>' : '';
+        let cancelButtonHtml = '';
+
+        if (type === 'success') {
+          iconHtml = CHECK_ICON;
+          spinnerHtml = '';
+        } else if (type === 'error') {
+          iconHtml = X_ICON;
+          spinnerHtml = '';
+          // Add a retry button on failure
+          buttonHtml = `<button class="retry-button" onclick="window.location.href='index.html'">Start New Purchase</button>`;
+        } else if (type === 'info') {
+            // ONLY show the cancel button when the status is 'info' (awaiting approval)
+            cancelButtonHtml = `<button class="cancel-button" onclick="cancelTransaction()">Cancel Transaction</button>`;
+        }
+
+
+        container.innerHTML = `
+          ${spinnerHtml}
+          ${iconHtml}
+          <div class="message ${type}">
+            ${text}
+          </div>
+          ${buttonHtml}
+          ${cancelButtonHtml} 
+        `;
+        
+        // Ensure content-area text alignment is restored for non-info messages
+        if (type !== 'info') {
+             container.style.textAlign = 'center';
+        } else {
+             container.style.textAlign = 'left';
+        }
+      }
+
+      // Core polling function
+      async function checkPaymentStatus(transactionId) {
+        if (!transactionId) {
+          updateDisplay("Error: Purchase data is missing. Please start a new transaction.", "error", false);
+          return;
+        }
+
+        // Set initial loading message with MANUAL APPROVAL INSTRUCTIONS
+        const initialMessage = `
+            Awaiting confirmation. Please approve the payment prompt on your phone.
+            <p style="margin-top: 10px; margin-bottom: 5px;">If you haven’t received a prompt, please try manual approval:</p>
+            <ul class="approval-instructions">
+                <li>🔹 <strong>MTN MoMo:</strong> Dial <strong>*170#</strong> &rarr; My Approvals &rarr; and confirm the payment.</li>
+                <li>🔹 <strong>AirtelTigo Money:</strong> Dial <strong>*110#</strong> &rarr; My Approvals and authorize the transaction.</li>
+                <li>🔹 <strong>Telecel Money:</strong> Dial <strong>*110#</strong> &rarr; My Approvals to approve manually.</li>
+            </ul>
+        `;
+        
+        updateDisplay(initialMessage, "info", true);
+
+        pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(
+              `https://payconnect-v2.onrender.com/api/check-status/${transactionId}`
+            );
+            
+            if (!statusRes.ok) {
+                console.error("Backend error: Status check failed with HTTP", statusRes.status);
+                return; 
+            }
+            
+            const statusData = await statusRes.json();
+            
+            // Get the status string, trim spaces, keep exact case.
+            const rawStatus = statusData.data?.status || statusData.data?.transaction_status;
+            const paymentStatus = rawStatus ? rawStatus.trim() : null;
+            
+            // SUCCESS CHECK: Focused on "Pending" and "Delivered" with exact casing.
+            if (paymentStatus === "Pending" || paymentStatus === "Delivered") {
+              clearInterval(pollInterval);
+              
+              updateDisplay("Payment confirmed! Your data bundle is being processed for delivery. Thank you!", "success", false); 
+
+              // Final Redirect (2.5 seconds delay)
+              setTimeout(() => {
+                window.location.href = FINAL_REDIRECT_URL;
+              }, 2500); 
+
+            } else if (paymentStatus === "Failed" || paymentStatus === "Cancelled" || paymentStatus === "failed") {
+              // Payment failed (Airtable/Gateway Failed States)
+              clearInterval(pollInterval);
+              updateDisplay("Payment failed or was cancelled. Please try again.", "error", false);
+            
+            } else if (!paymentStatus || paymentStatus === "Initiated") {
+                // Status is still processing or waiting. Keep polling.
+            }
+
+          } catch (pollErr) {
+            console.error("Error checking payment status:", pollErr);
+          }
+        }, STATUS_CHECK_INTERVAL);
+      }
+
+      // Start the process when the page loads
+      document.addEventListener("DOMContentLoaded", () => {
+        const id = getTransactionId(); // Now sets currentTransactionId
+        if (id) {
+          checkPaymentStatus(id);
+        } else {
+          // Changed error message to reflect sessionStorage failure
+          updateDisplay("Error: Purchase data is missing. Please start a new transaction.", "error", false);
+        }
+      });
+    </script>
+  </body>
+</html>
